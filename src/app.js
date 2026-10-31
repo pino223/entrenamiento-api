@@ -1,10 +1,17 @@
 import express from 'express';
+import cors from 'cors';
 import workoutRoutes from './routes/workouts.js';
 
 const app = express();
 
+//cConfiguracion de CORS para permitir peticiones desde frontend
+app.use(cors({
+  origin: 'http://127.0.0.1:5500'
+}));
+
 // Middleware para parsear JSON en el body de las peticiones
 app.use(express.json());
+
 
 // Middleware de logging simple
 app.use((req, res, next) => {
