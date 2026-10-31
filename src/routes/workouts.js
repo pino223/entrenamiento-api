@@ -104,12 +104,13 @@ router.get('/', async (req, res, next) => {
 });
 
 // 3. PATCH /api/workouts/:id - Actualizar parcialmente
-router.patch('/:id', (req, res) => {
+router.patch('/:id', async (req, res, next) => {
   const { id } = req.params;
   const updates = req.body;
   const allowedUpdates = ['durationMin', 'perceivedEffort', 'notes', 'type', 'startedAt'];
   const fields = [];
   const values = [];
+  let paramIndex = 1;
 
   Object.keys(updates).forEach(key => {
     if (allowedUpdates.includes(key)) {
@@ -119,7 +120,8 @@ router.patch('/:id', (req, res) => {
       if (key === 'perceivedEffort') dbColumn = 'perceived_effort';
       if (key === 'startedAt') dbColumn = 'started_at';
 
-      fields.push(`${dbColumn} = ?`);
+      // Usamos $1, $2, $3 (sintaxis de Postgres)
+      fields.push(`${dbColumn} = $${paramIndex++}`);
       values.push(updates[key]);
     }
   });
@@ -129,19 +131,23 @@ router.patch('/:id', (req, res) => {
   }
 
   // Siempre actualizamos updated_at
-  fields.push('updated_at = ?');
+  fields.push(`updated_at = $${paramIndex++}`);
   values.push(new Date().toISOString());
+  
   values.push(id); // Para el WHERE
 
-  const query = `UPDATE workouts SET ${fields.join(', ')} WHERE id = ? AND deleted = 0`;
+  const query = `UPDATE workouts SET ${fields.join(', ')} WHERE id = $${paramIndex} AND deleted = 0`;
   
   try {
-    const result = db.prepare(query).run(...values);
-    if (result.changes === 0) {
+    // Usamos db.query (de Postgres) en lugar de db.prepare (de SQLite)
+    const result = await db.query(query, values);
+    
+    if (result.rowCount === 0) {
       return res.status(404).json({ error: 'Entrenamiento no encontrado' });
     }
-    const updated = db.prepare('SELECT * FROM workouts WHERE id = ?').get(id);
-    res.json(updated);
+    
+    const updated = await db.query('SELECT * FROM workouts WHERE id = $1', [id]);
+    res.json(updated.rows[0]);
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Error al actualizar' });
