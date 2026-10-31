@@ -104,17 +104,22 @@ router.get('/', async (req, res, next) => {
 });
 
 // 3. PATCH /api/workouts/:id - Actualizar parcialmente
-router.patch('/:id', async (req, res, next) => {
+router.patch('/:id', (req, res) => {
   const { id } = req.params;
   const updates = req.body;
   const allowedUpdates = ['durationMin', 'perceivedEffort', 'notes', 'type', 'startedAt'];
   const fields = [];
   const values = [];
-  let paramIndex = 1;
 
   Object.keys(updates).forEach(key => {
     if (allowedUpdates.includes(key)) {
-      fields.push(`${key} = $${paramIndex++}`);
+      // MAPEAMOS LOS NOMBRES AL FORMATO DE LA BASE DE DATOS
+      let dbColumn = key;
+      if (key === 'durationMin') dbColumn = 'duration_min';
+      if (key === 'perceivedEffort') dbColumn = 'perceived_effort';
+      if (key === 'startedAt') dbColumn = 'started_at';
+
+      fields.push(`${dbColumn} = ?`);
       values.push(updates[key]);
     }
   });
@@ -123,25 +128,23 @@ router.patch('/:id', async (req, res, next) => {
     return res.status(400).json({ error: 'No hay campos válidos para actualizar' });
   }
 
-  fields.push(`updated_at = $${paramIndex++}`);
+  // Siempre actualizamos updated_at
+  fields.push('updated_at = ?');
   values.push(new Date().toISOString());
+  values.push(id); // Para el WHERE
+
+  const query = `UPDATE workouts SET ${fields.join(', ')} WHERE id = ? AND deleted = 0`;
   
-  // El ID va al final, para la cláusula WHERE
-  values.push(id);
-
-  const query = `UPDATE workouts SET ${fields.join(', ')} WHERE id = $${paramIndex} AND deleted = 0 RETURNING *`;
-
   try {
-    const result = await db.query(query, values);
-
-    // En Postgres, rowCount reemplaza a changes
-    if (result.rowCount === 0) {
+    const result = db.prepare(query).run(...values);
+    if (result.changes === 0) {
       return res.status(404).json({ error: 'Entrenamiento no encontrado' });
     }
-
-    res.json(result.rows[0]); // RETURNING * nos devuelve la fila actualizada
+    const updated = db.prepare('SELECT * FROM workouts WHERE id = ?').get(id);
+    res.json(updated);
   } catch (error) {
-    next(error);
+    console.error(error);
+    res.status(500).json({ error: 'Error al actualizar' });
   }
 });
 
